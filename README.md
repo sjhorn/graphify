@@ -1,4 +1,10 @@
-# graphify-go
+# graphify
+
+[![CI](https://github.com/sjhorn/graphify/actions/workflows/ci.yml/badge.svg)](https://github.com/sjhorn/graphify/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/sjhorn/graphify/branch/main/graph/badge.svg)](https://codecov.io/gh/sjhorn/graphify)
+[![Go Report Card](https://goreportcard.com/badge/github.com/sjhorn/graphify)](https://goreportcard.com/report/github.com/sjhorn/graphify)
+[![Go Reference](https://pkg.go.dev/badge/github.com/sjhorn/graphify.svg)](https://pkg.go.dev/github.com/sjhorn/graphify)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A Go implementation of [graphify](https://github.com/safishamsi/graphify) — turn source code into a knowledge graph, cluster it into communities, and generate a visual report.
 
