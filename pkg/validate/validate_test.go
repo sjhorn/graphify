@@ -123,6 +123,58 @@ func TestDanglingEdgeTarget(t *testing.T) {
 	}
 }
 
+func TestEdgeNotADict(t *testing.T) {
+	data := map[string]interface{}{
+		"nodes": []interface{}{
+			map[string]interface{}{"id": "n1", "label": "A", "file_type": "code", "source_file": "a.py"},
+		},
+		"edges": []interface{}{
+			"not an object",
+		},
+	}
+	errors := ValidateExtraction(data)
+	if len(errors) == 0 {
+		t.Error("ValidateExtraction() should return error for non-object edge")
+	}
+}
+
+func TestEdgeMissingField(t *testing.T) {
+	data := map[string]interface{}{
+		"nodes": []interface{}{
+			map[string]interface{}{"id": "n1", "label": "A", "file_type": "code", "source_file": "a.py"},
+		},
+		"edges": []interface{}{
+			map[string]interface{}{"source": "n1"},
+		},
+	}
+	errors := ValidateExtraction(data)
+	if len(errors) == 0 {
+		t.Error("ValidateExtraction() should return error for edge missing fields")
+	}
+}
+
+func TestNodeNotADict(t *testing.T) {
+	data := map[string]interface{}{
+		"nodes": []interface{}{"not an object"},
+		"edges": []interface{}{},
+	}
+	errors := ValidateExtraction(data)
+	if len(errors) == 0 {
+		t.Error("ValidateExtraction() should return error for non-object node")
+	}
+}
+
+func TestEdgesNotAList(t *testing.T) {
+	data := map[string]interface{}{
+		"nodes": []interface{}{},
+		"edges": "not a list",
+	}
+	errors := ValidateExtraction(data)
+	if len(errors) == 0 {
+		t.Error("ValidateExtraction() should return error for non-list edges")
+	}
+}
+
 func TestMissingNodeField(t *testing.T) {
 	data := map[string]interface{}{
 		"nodes": []interface{}{

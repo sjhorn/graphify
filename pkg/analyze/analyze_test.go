@@ -166,6 +166,96 @@ func toLower(s string) string {
 	return string(result)
 }
 
+func TestAnalyzeReturnsAllFields(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("cls", "MyClass", "class", "lib/src/models/my.py")
+	g.AddNode("m1", ".process()", "method", "lib/src/models/my.py")
+	g.AddNode("fn1", "helper()", "function", "lib/src/utils/helper.py")
+	g.AddEdge("cls", "m1", "method", "EXTRACTED", 1.0)
+	g.AddEdge("m1", "fn1", "calls", "EXTRACTED", 1.0)
+
+	communities := map[int][]string{
+		0: {"cls", "m1"},
+		1: {"fn1"},
+	}
+	detection := DetectResultInfo{TotalFiles: 2, TotalWords: 500}
+	analysis := Analyze(g, communities, detection)
+
+	if analysis == nil {
+		t.Fatal("Analyze() returned nil")
+	}
+	if analysis.Summary == "" {
+		t.Error("Analyze() summary is empty")
+	}
+}
+
+func TestAnalyzeCountsSingletons(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("a", "A", "class", "a.py")
+	g.AddNode("b", "B", "class", "b.py")
+	g.AddNode("c", "C", "class", "c.py")
+
+	communities := map[int][]string{
+		0: {"a", "b"},
+		1: {"c"},
+	}
+	detection := DetectResultInfo{TotalFiles: 3}
+	analysis := Analyze(g, communities, detection)
+
+	if analysis.SingletonCount != 1 {
+		t.Errorf("SingletonCount = %d; want 1", analysis.SingletonCount)
+	}
+}
+
+func TestIsFileNode(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("file1", "main.py", "file", "main.py")
+	g.AddNode("cls1", "MyClass", "class", "main.py")
+
+	if !isFileNode(g, "file1") {
+		t.Error("isFileNode(file type) = false; want true")
+	}
+	if isFileNode(g, "cls1") {
+		t.Error("isFileNode(class type) = true; want false")
+	}
+	if isFileNode(g, "nonexistent") {
+		t.Error("isFileNode(missing) = true; want false")
+	}
+}
+
+func TestIsConceptNode(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("mod", "os", "module", "")
+	g.AddNode("cls", "MyClass", "class", "my.py")
+	g.AddNode("nofile", "Mystery", "class", "")
+
+	if !isConceptNode(g, "mod") {
+		t.Error("isConceptNode(module) = false; want true")
+	}
+	if isConceptNode(g, "cls") {
+		t.Error("isConceptNode(class with file) = true; want false")
+	}
+	if !isConceptNode(g, "nofile") {
+		t.Error("isConceptNode(no file) = false; want true")
+	}
+}
+
+func TestIsExternalType(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("ext", "Widget", "class", "")
+	g.AddNode("child1", "MyWidget", "class", "my.dart")
+	g.AddNode("child2", "OtherWidget", "class", "other.dart")
+	g.AddEdge("child1", "ext", "inherits", "EXTRACTED", 1.0)
+	g.AddEdge("child2", "ext", "inherits", "EXTRACTED", 1.0)
+
+	if !isExternalType(g, "ext") {
+		t.Error("isExternalType(Widget) = false; want true")
+	}
+	if isExternalType(g, "child1") {
+		t.Error("isExternalType(MyWidget) = true; want false (has outgoing edges)")
+	}
+}
+
 func TestTopLevelDir(t *testing.T) {
 	tests := map[string]string{
 		"model.py":          "model.py",

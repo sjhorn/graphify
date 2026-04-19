@@ -97,6 +97,97 @@ func TestDetectObserverPattern(t *testing.T) {
 	}
 }
 
+func TestDetectStrategyPattern(t *testing.T) {
+	g := graph.NewGraph()
+
+	// 4 classes that share the same 3-method interface but are not in an inheritance tree
+	for _, name := range []string{"PenTool", "BrushTool", "EraserTool", "FillTool"} {
+		id := "tool_" + name
+		g.AddNode(id, name, "class", "lib/src/tools/"+name+".dart")
+		for _, method := range []string{"activate", "deactivate", "onPointerDown"} {
+			mid := id + "_" + method
+			g.AddNode(mid, "."+method+"()", "method", "lib/src/tools/"+name+".dart")
+			g.AddEdge(id, mid, "method", "EXTRACTED", 1.0)
+		}
+	}
+
+	patterns := DetectPatterns(g)
+
+	found := false
+	for _, p := range patterns {
+		if p.Name == "Strategy" {
+			found = true
+			if p.Participants < 4 {
+				t.Errorf("expected >= 4 participants, got %d", p.Participants)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected Strategy pattern to be detected")
+	}
+}
+
+func TestUniqueStrings(t *testing.T) {
+	result := uniqueStrings([]string{"b", "a", "b", "c", "a"})
+	if len(result) != 3 {
+		t.Errorf("uniqueStrings() = %d; want 3", len(result))
+	}
+	// Should be sorted
+	if result[0] != "a" || result[1] != "b" || result[2] != "c" {
+		t.Errorf("uniqueStrings() = %v; want [a b c]", result)
+	}
+}
+
+func TestTruncateNamesShort(t *testing.T) {
+	result := truncateNames([]string{"a", "b"}, 5)
+	if len(result) != 2 {
+		t.Errorf("truncateNames(2, 5) = %d; want 2", len(result))
+	}
+}
+
+func TestTruncateNamesLong(t *testing.T) {
+	result := truncateNames([]string{"a", "b", "c", "d", "e", "f"}, 3)
+	if len(result) != 4 { // 3 names + "(+3 more)"
+		t.Errorf("truncateNames(6, 3) = %d; want 4", len(result))
+	}
+	if result[3] != "(+3 more)" {
+		t.Errorf("last element = %q; want (+3 more)", result[3])
+	}
+}
+
+func TestNormalizeMethodName(t *testing.T) {
+	tests := map[string]string{
+		".build()":  "build",
+		"process()": "process",
+		".foo":      "foo",
+		"bar":       "bar",
+	}
+	for input, expected := range tests {
+		got := normalizeMethodName(input)
+		if got != expected {
+			t.Errorf("normalizeMethodName(%q) = %q; want %q", input, got, expected)
+		}
+	}
+}
+
+func TestMatchesAny(t *testing.T) {
+	methods := []string{".execute()", ".validate()", ".render()"}
+	if matchesAny(methods, []string{"run", "handle"}) != "" {
+		t.Error("matchesAny should return empty for no match")
+	}
+	if matchesAny(methods, []string{"execute"}) != "execute" {
+		t.Error("matchesAny should match execute")
+	}
+}
+
+func TestMatchesPrefix(t *testing.T) {
+	methods := []string{".createWidget()", ".buildLayout()", ".render()"}
+	matched := matchesPrefix(methods, []string{"create", "build"})
+	if len(matched) != 2 {
+		t.Errorf("matchesPrefix() = %d; want 2", len(matched))
+	}
+}
+
 func TestDetectPatternsNoFalsePositives(t *testing.T) {
 	g := graph.NewGraph()
 

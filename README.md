@@ -47,7 +47,6 @@ All output is written to the output directory (`graphify-out/` by default):
 - **graph.json** — full graph data with nodes, edges, and community assignments
 - **graph.html** — interactive force-directed visualization
 - **GRAPH_REPORT.md** — Markdown report with community summaries, god nodes, and surprising connections
-
 ## How extraction works
 
 Each source file is parsed into a tree-sitter AST. Language-specific extractors walk the AST to identify:
@@ -60,6 +59,39 @@ Each source file is parsed into a tree-sitter AST. Language-specific extractors 
   - `inherits` — class extends or implements another
   - `imports` — file imports a module or symbol
   - `case_of` — enum variant belongs to an enum
+
+## Using with Claude Code
+
+Add this snippet to your project's `CLAUDE.md` to instruct Claude Code agents to leverage graphify during explore and research phases:
+
+```markdown
+## Codebase exploration with graphify
+
+When exploring this codebase for the first time, or when researching how components connect:
+
+1. Build the knowledge graph (once per session):
+   ```bash
+   graphify /path/to/this/project
+   ```
+
+2. Read the architecture overview:
+   - `graphify-out/GRAPH_REPORT.md` — god nodes, communities, design patterns, dependency layers
+
+3. Use subcommands for targeted exploration:
+   ```bash
+   # Natural language graph traversal (budget = max output tokens)
+   graphify query "How does authentication work?" --budget 3000
+
+   # Trace connections between two entities
+   graphify path "AuthService" "UserRepository"
+
+   # Deep dive on a specific node
+   graphify explain "DatabaseClient"
+   ```
+
+Prefer graphify over grepping when the question is architectural ("how does X connect to Y?",
+"what depends on Z?", "what are the core abstractions?").
+```
 
 ## Attribution
 
