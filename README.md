@@ -70,36 +70,14 @@ Each source file is parsed into a tree-sitter AST. Language-specific extractors 
 
 ## Using with Claude Code
 
-Add this snippet to your project's `CLAUDE.md` to instruct Claude Code agents to leverage graphify during explore and research phases:
+Add graphify instructions to your project's `CLAUDE.md` so Claude Code agents can leverage the knowledge graph during explore and research phases:
 
-```markdown
-## Codebase exploration with graphify
-
-When exploring this codebase for the first time, or when researching how components connect:
-
-1. Build the knowledge graph (once per session):
-   ```bash
-   graphify /path/to/this/project
-   ```
-
-2. Read the architecture overview:
-   - `graphify-out/GRAPH_REPORT.md` — god nodes, communities, design patterns, dependency layers
-
-3. Use subcommands for targeted exploration:
-   ```bash
-   # Natural language graph traversal (budget = max output tokens)
-   graphify query "How does authentication work?" --budget 3000
-
-   # Trace connections between two entities
-   graphify path "AuthService" "UserRepository"
-
-   # Deep dive on a specific node
-   graphify explain "DatabaseClient"
-   ```
-
-Prefer graphify over grepping when the question is architectural ("how does X connect to Y?",
-"what depends on Z?", "what are the core abstractions?").
+```bash
+graphify claude            # appends prompt to ./CLAUDE.md
+graphify claude /path/to   # appends prompt to /path/to/CLAUDE.md
 ```
+
+This is idempotent — running it again will skip if the section already exists.
 
 ## Attribution
 

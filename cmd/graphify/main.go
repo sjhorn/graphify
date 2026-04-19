@@ -30,6 +30,9 @@ func main() {
 		case "explain":
 			runExplain(os.Args[2:])
 			return
+		case "claude":
+			runClaude(os.Args[2:])
+			return
 		}
 	}
 
@@ -39,6 +42,7 @@ func main() {
 
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: graphify [options] <root>")
+		fmt.Fprintln(os.Stderr, "       graphify claude [<dir>]")
 		fmt.Fprintln(os.Stderr, "       graphify query \"<question>\" [--dfs] [--budget N]")
 		fmt.Fprintln(os.Stderr, "       graphify path \"<nodeA>\" \"<nodeB>\"")
 		fmt.Fprintln(os.Stderr, "       graphify explain \"<node>\"")
@@ -327,6 +331,76 @@ func runPath(args []string) {
 	if err := queryPath(graphPath, fs.Arg(0), fs.Arg(1)); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+const claudePrompt = `## Codebase exploration with graphify
+
+When exploring this codebase for the first time, or when researching how components connect:
+
+1. Build the knowledge graph (once per session):
+   ` + "```" + `bash
+   graphify .
+   ` + "```" + `
+
+2. Read the architecture overview:
+   - ` + "`" + `graphify-out/GRAPH_REPORT.md` + "`" + ` — god nodes, communities, design patterns, dependency layers
+
+3. Use subcommands for targeted exploration:
+   ` + "```" + `bash
+   # Natural language graph traversal (budget = max output tokens)
+   graphify query "How does authentication work?" --budget 3000
+
+   # Trace connections between two entities
+   graphify path "AuthService" "UserRepository"
+
+   # Deep dive on a specific node
+   graphify explain "DatabaseClient"
+   ` + "```" + `
+
+Prefer graphify over grepping when the question is architectural ("how does X connect to Y?",
+"what depends on Z?", "what are the core abstractions?").
+`
+
+func runClaude(args []string) {
+	dir := "."
+	if len(args) > 0 {
+		dir = args[0]
+	}
+
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+
+	// Check if section already exists
+	existing, err := os.ReadFile(claudePath)
+	if err == nil && strings.Contains(string(existing), "## Codebase exploration with graphify") {
+		fmt.Println("CLAUDE.md already contains graphify prompt — skipping.")
+		return
+	}
+
+	f, err := os.OpenFile(claudePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening %s: %v\n", claudePath, err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	// Add a newline separator if appending to existing content
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	if len(existing) > 0 {
+		f.WriteString("\n")
+	}
+
+	if _, err := f.WriteString(claudePrompt); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing to %s: %v\n", claudePath, err)
+		os.Exit(1)
+	}
+
+	if len(existing) == 0 {
+		fmt.Printf("Created %s with graphify prompt.\n", claudePath)
+	} else {
+		fmt.Printf("Appended graphify prompt to %s.\n", claudePath)
 	}
 }
 
