@@ -31,7 +31,13 @@ func main() {
 			runExplain(os.Args[2:])
 			return
 		case "claude":
-			runClaude(os.Args[2:])
+			runClaude(os.Args[2:], "CLAUDE.md")
+			return
+		case "agents":
+			runClaude(os.Args[2:], "AGENTS.md")
+			return
+		case "help":
+			printUsage()
 			return
 		}
 	}
@@ -41,11 +47,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: graphify [options] <root>")
-		fmt.Fprintln(os.Stderr, "       graphify claude [<dir>]")
-		fmt.Fprintln(os.Stderr, "       graphify query \"<question>\" [--dfs] [--budget N]")
-		fmt.Fprintln(os.Stderr, "       graphify path \"<nodeA>\" \"<nodeB>\"")
-		fmt.Fprintln(os.Stderr, "       graphify explain \"<node>\"")
+		printUsage()
 		os.Exit(1)
 	}
 
@@ -179,6 +181,24 @@ func main() {
 	fmt.Printf("  - graph.json\n")
 	fmt.Printf("  - graph.html\n")
 	fmt.Printf("  - GRAPH_REPORT.md\n")
+}
+
+func printUsage() {
+	fmt.Fprintln(os.Stderr, `Usage: graphify [options] <root>
+
+Analyze a codebase and generate a knowledge graph.
+
+Commands:
+  claude [<dir>]                       Append graphify prompt to CLAUDE.md (default: current dir)
+  agents [<dir>]                       Append graphify prompt to AGENTS.md (default: current dir)
+  query "<question>" [--dfs] [--budget N]  Search the graph with a natural language question
+  path "<nodeA>" "<nodeB>"             Find shortest path between two nodes
+  explain "<node>"                     Show details and connections for a node
+  help                                 Show this help message
+
+Options:
+  -out <dir>      Output directory (default: graphify-out)
+  -verbose        Show detailed progress including cache hit/miss stats`)
 }
 
 // labelScore returns a priority score for how good a node is as a community label.
@@ -362,24 +382,24 @@ Prefer graphify over grepping when the question is architectural ("how does X co
 "what depends on Z?", "what are the core abstractions?").
 `
 
-func runClaude(args []string) {
+func runClaude(args []string, targetFile string) {
 	dir := "."
 	if len(args) > 0 {
 		dir = args[0]
 	}
 
-	claudePath := filepath.Join(dir, "CLAUDE.md")
+	targetPath := filepath.Join(dir, targetFile)
 
 	// Check if section already exists
-	existing, err := os.ReadFile(claudePath)
+	existing, err := os.ReadFile(targetPath)
 	if err == nil && strings.Contains(string(existing), "## Codebase exploration with graphify") {
-		fmt.Println("CLAUDE.md already contains graphify prompt — skipping.")
+		fmt.Printf("%s already contains graphify prompt — skipping.\n", targetFile)
 		return
 	}
 
-	f, err := os.OpenFile(claudePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(targetPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening %s: %v\n", claudePath, err)
+		fmt.Fprintf(os.Stderr, "Error opening %s: %v\n", targetPath, err)
 		os.Exit(1)
 	}
 	defer f.Close()
@@ -393,14 +413,14 @@ func runClaude(args []string) {
 	}
 
 	if _, err := f.WriteString(claudePrompt); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing to %s: %v\n", claudePath, err)
+		fmt.Fprintf(os.Stderr, "Error writing to %s: %v\n", targetPath, err)
 		os.Exit(1)
 	}
 
 	if len(existing) == 0 {
-		fmt.Printf("Created %s with graphify prompt.\n", claudePath)
+		fmt.Printf("Created %s with graphify prompt.\n", targetPath)
 	} else {
-		fmt.Printf("Appended graphify prompt to %s.\n", claudePath)
+		fmt.Printf("Appended graphify prompt to %s.\n", targetPath)
 	}
 }
 

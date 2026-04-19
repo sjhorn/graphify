@@ -38,6 +38,10 @@ graphify -out results /path/to/project
 
 # Verbose output
 graphify -verbose /path/to/project
+
+# Add graphify prompt to CLAUDE.md or AGENTS.md
+graphify claude              # or: graphify agents
+graphify claude /path/to/project
 ```
 
 ## Output
@@ -67,17 +71,6 @@ Each source file is parsed into a tree-sitter AST. Language-specific extractors 
   - `inherits` — class extends or implements another
   - `imports` — file imports a module or symbol
   - `case_of` — enum variant belongs to an enum
-
-## Using with Claude Code
-
-Add graphify instructions to your project's `CLAUDE.md` so Claude Code agents can leverage the knowledge graph during explore and research phases:
-
-```bash
-graphify claude            # appends prompt to ./CLAUDE.md
-graphify claude /path/to   # appends prompt to /path/to/CLAUDE.md
-```
-
-This is idempotent — running it again will skip if the section already exists.
 
 ## Attribution
 
