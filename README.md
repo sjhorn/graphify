@@ -39,9 +39,13 @@ graphify -out results /path/to/project
 # Verbose output
 graphify -verbose /path/to/project
 
-# Add graphify prompt to CLAUDE.md or AGENTS.md
-graphify claude              # or: graphify agents
+# Add graphify prompt to CLAUDE.md
+graphify claude
 graphify claude /path/to/project
+
+# Add graphify prompt to AGENTS.md
+graphify agents
+graphify agents /path/to/project
 ```
 
 ## Output
