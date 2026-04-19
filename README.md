@@ -47,6 +47,14 @@ All output is written to the output directory (`graphify-out/` by default):
 - **graph.json** — full graph data with nodes, edges, and community assignments
 - **graph.html** — interactive force-directed visualization
 - **GRAPH_REPORT.md** — Markdown report with community summaries, god nodes, and surprising connections
+- **cache/** — per-file extraction cache (SHA256-keyed), automatically used on subsequent runs
+
+## Caching
+
+Extraction results are cached per file based on content hash (SHA256). On subsequent runs, unchanged files are loaded from cache instead of being re-extracted. For Markdown files, only the body is hashed — frontmatter changes (e.g. `reviewed` dates) don't invalidate the cache.
+
+Use `-verbose` to see cache hit/miss stats.
+
 ## How extraction works
 
 Each source file is parsed into a tree-sitter AST. Language-specific extractors walk the AST to identify:

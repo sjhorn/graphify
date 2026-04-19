@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sjhorn/graphify/pkg/extract"
 )
 
 // FileHash returns SHA256 hash of file contents.
@@ -41,47 +43,50 @@ func bodyContent(content []byte) []byte {
 	return content
 }
 
-// CacheDir returns the cache directory path.
-func CacheDir(root string) string {
-	return filepath.Join(root, "graphify-out", "cache")
+// CacheDir returns the cache directory path within the output directory.
+func CacheDir(outDir string) string {
+	return filepath.Join(outDir, "cache")
 }
 
 // LoadCached returns cached extraction result if hash matches.
-func LoadCached(path string, root string) map[string]interface{} {
-	hash := FileHash(path)
-	cachePath := filepath.Join(CacheDir(root), hash+".json")
+func LoadCached(filePath, outDir string) (*extract.Extraction, bool) {
+	hash := FileHash(filePath)
+	cachePath := filepath.Join(CacheDir(outDir), hash+".json")
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
-	var result map[string]interface{}
+	var result extract.Extraction
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil
+		return nil, false
 	}
 
-	return result
+	return &result, true
 }
 
 // SaveCached saves extraction result to cache.
-func SaveCached(path string, result map[string]interface{}, root string) {
-	hash := FileHash(path)
-	cachePath := filepath.Join(CacheDir(root), hash+".json")
+func SaveCached(filePath string, ext *extract.Extraction, outDir string) error {
+	hash := FileHash(filePath)
+	cachePath := filepath.Join(CacheDir(outDir), hash+".json")
 
 	// Ensure cache directory exists
 	cacheDir := filepath.Dir(cachePath)
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return
+		return err
 	}
 
-	data, _ := json.Marshal(result)
-	os.WriteFile(cachePath, data, 0644)
+	data, err := json.Marshal(ext)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cachePath, data, 0644)
 }
 
 // CachedFiles returns set of file hashes that have valid cache entries.
-func CachedFiles(root string) map[string]bool {
-	cacheDir := CacheDir(root)
+func CachedFiles(outDir string) map[string]bool {
+	cacheDir := CacheDir(outDir)
 	result := make(map[string]bool)
 
 	files, err := os.ReadDir(cacheDir)
@@ -100,8 +105,8 @@ func CachedFiles(root string) map[string]bool {
 }
 
 // ClearCache removes all cache files.
-func ClearCache(root string) {
-	cacheDir := CacheDir(root)
+func ClearCache(outDir string) {
+	cacheDir := CacheDir(outDir)
 
 	files, err := os.ReadDir(cacheDir)
 	if err != nil {

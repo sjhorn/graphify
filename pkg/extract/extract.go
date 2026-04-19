@@ -1,9 +1,6 @@
 package extract
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -207,41 +204,6 @@ func CollectFiles(root string) []string {
 		return nil
 	})
 	return files
-}
-
-// CheckCache checks if a file is in the cache.
-func CheckCache(path string, cacheDir string) (*Extraction, bool) {
-	hash := hashFile(path)
-	cachePath := filepath.Join(cacheDir, hash+".json")
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		return nil, false
-	}
-	var extraction Extraction
-	if err := json.Unmarshal(data, &extraction); err != nil {
-		return nil, false
-	}
-	return &extraction, true
-}
-
-// SaveCache saves an extraction to the cache.
-func SaveCache(extraction *Extraction, path string, cacheDir string) error {
-	hash := hashFile(path)
-	cachePath := filepath.Join(cacheDir, hash+".json")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return err
-	}
-	data, err := json.Marshal(extraction)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(cachePath, data, 0644)
-}
-
-func hashFile(path string) string {
-	content, _ := os.ReadFile(path)
-	hash := sha256.Sum256(content)
-	return hex.EncodeToString(hash[:])
 }
 
 // SortNodes sorts nodes by ID for deterministic output.

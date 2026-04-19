@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sjhorn/graphify/pkg/analyze"
+	"github.com/sjhorn/graphify/pkg/cache"
 	"github.com/sjhorn/graphify/pkg/cluster"
 	"github.com/sjhorn/graphify/pkg/detect"
 	"github.com/sjhorn/graphify/pkg/export"
@@ -66,10 +67,23 @@ func main() {
 	var allNodes []extract.Node
 	var allEdges []extract.Edge
 
+	var cacheHits, cacheMisses int
 	for _, file := range allFiles {
+		if cached, ok := cache.LoadCached(file, *outDir); ok {
+			allNodes = append(allNodes, cached.Nodes...)
+			allEdges = append(allEdges, cached.Edges...)
+			cacheHits++
+			continue
+		}
 		extraction := extract.Extract([]string{file}, "")
 		allNodes = append(allNodes, extraction.Nodes...)
 		allEdges = append(allEdges, extraction.Edges...)
+		_ = cache.SaveCached(file, extraction, *outDir)
+		cacheMisses++
+	}
+
+	if *verbose {
+		fmt.Printf("Cache: %d hits, %d misses\n", cacheHits, cacheMisses)
 	}
 
 	// Build graph
