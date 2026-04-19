@@ -1,0 +1,68 @@
+# graphify-go
+
+A Go implementation of [graphify](https://github.com/safishamsi/graphify) — turn source code into a knowledge graph, cluster it into communities, and generate a visual report.
+
+## What it does
+
+1. **Detect** source files in a project directory
+2. **Extract** nodes (functions, classes, modules) and edges (calls, inherits, imports) using tree-sitter AST parsing
+3. **Build** a knowledge graph from the extracted entities
+4. **Cluster** the graph into communities using the Louvain algorithm
+5. **Analyze** the graph for god nodes and surprising connections
+6. **Export** an interactive HTML visualization, JSON graph, and Markdown report
+
+## Supported languages (24)
+
+C, C++, C#, Dart, Elixir, Elm, Go, Haskell, Java, JavaScript/TypeScript (JSX/TSX), Julia, Kotlin, Lua, Objective-C, PHP, PowerShell, Python, R, Ruby, Rust, Scala, Svelte, Swift, Vue, Zig
+
+## Installation
+
+```bash
+go install github.com/sjhorn/graphify/cmd/graphify@latest
+```
+
+## Usage
+
+```bash
+# Analyze a project directory
+graphify /path/to/project
+
+# Specify output directory
+graphify -out results /path/to/project
+
+# Verbose output
+graphify -verbose /path/to/project
+```
+
+## Output
+
+All output is written to the output directory (`graphify-out/` by default):
+
+- **graph.json** — full graph data with nodes, edges, and community assignments
+- **graph.html** — interactive force-directed visualization
+- **GRAPH_REPORT.md** — Markdown report with community summaries, god nodes, and surprising connections
+
+## How extraction works
+
+Each source file is parsed into a tree-sitter AST. Language-specific extractors walk the AST to identify:
+
+- **Nodes**: files, classes, functions, methods, interfaces, enums, modules
+- **Edges** with relation types:
+  - `contains` — file contains a class, class contains a method
+  - `method` — class has a method
+  - `calls` — function calls another function
+  - `inherits` — class extends or implements another
+  - `imports` — file imports a module or symbol
+  - `case_of` — enum variant belongs to an enum
+
+## Attribution
+
+This is a Go rewrite of [graphify](https://github.com/safishamsi/graphify) by Safi Shamsi.
+
+Key dependencies:
+- [tree-sitter/go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) — AST parsing
+- [gonum](https://gonum.org) — graph algorithms and community detection
+
+## License
+
+[MIT](LICENSE)

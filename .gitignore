@@ -1,0 +1,38 @@
+# Compiled binary
+graphify
+
+# Output directory
+graphify-out/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Dependency directories
+vendor/
+
+# Claude
+.claude/
+
+# Scratch/experiments
+sandpit/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+
+# Log files
+*.log
