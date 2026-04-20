@@ -51,13 +51,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	root := flag.Arg(0)
+	if err := runPipeline(flag.Arg(0), *outDir, *verbose); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
+// runPipeline is the core pipeline: detect → extract → graph → cluster → analyze → export.
+func runPipeline(root, outDir string, verbose bool) error {
 	// Detect files
 	fmt.Println("Detecting files...")
 	result := detect.CollectFiles(root)
 
-	if *verbose {
+	if verbose {
 		fmt.Printf("Found %d code files, %d documents\n",
 			len(result.Files[detect.FileTypeCode]),
 			len(result.Files[detect.FileTypeDocument]))
@@ -75,7 +81,7 @@ func main() {
 
 	var cacheHits, cacheMisses int
 	for _, file := range allFiles {
-		if cached, ok := cache.LoadCached(file, *outDir); ok {
+		if cached, ok := cache.LoadCached(file, outDir); ok {
 			allNodes = append(allNodes, cached.Nodes...)
 			allEdges = append(allEdges, cached.Edges...)
 			cacheHits++
@@ -84,11 +90,11 @@ func main() {
 		extraction := extract.Extract([]string{file}, "")
 		allNodes = append(allNodes, extraction.Nodes...)
 		allEdges = append(allEdges, extraction.Edges...)
-		_ = cache.SaveCached(file, extraction, *outDir)
+		_ = cache.SaveCached(file, extraction, outDir)
 		cacheMisses++
 	}
 
-	if *verbose {
+	if verbose {
 		fmt.Printf("Cache: %d hits, %d misses\n", cacheHits, cacheMisses)
 	}
 
@@ -99,9 +105,6 @@ func main() {
 	for _, node := range allNodes {
 		file := node.File
 		if file != "" {
-			// filepath.Rel requires both paths to be absolute or both relative.
-			// Extractors return paths as given by detect (relative to cwd),
-			// so we must make them absolute first.
 			absFile, err := filepath.Abs(file)
 			if err == nil {
 				if rel, err := filepath.Rel(absRoot, absFile); err == nil {
@@ -143,21 +146,19 @@ func main() {
 		len(analysis.GodNodes), len(analysis.SurprisingConnections))
 
 	// Create output directory
-	os.MkdirAll(*outDir, 0755)
+	os.MkdirAll(outDir, 0755)
 
 	// Export
 	fmt.Println("Exporting...")
-	jsonPath := filepath.Join(*outDir, "graph.json")
+	jsonPath := filepath.Join(outDir, "graph.json")
 	if err := export.ToJSON(g, clusterResult, jsonPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error exporting JSON: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("exporting JSON: %w", err)
 	}
 
-	htmlPath := filepath.Join(*outDir, "graph.html")
+	htmlPath := filepath.Join(outDir, "graph.html")
 	labels := generateCommunityLabels(g, clusterResult.Communities)
 	if err := export.ToHTML(g, clusterResult, htmlPath, labels); err != nil {
-		fmt.Fprintf(os.Stderr, "Error exporting HTML: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("exporting HTML: %w", err)
 	}
 
 	// Generate report
@@ -171,16 +172,16 @@ func main() {
 	reportContent := report.Generate(g, clusterResult.Communities, cohesionScores, labels,
 		analysis, detection, tokens, root)
 
-	reportPath := filepath.Join(*outDir, "GRAPH_REPORT.md")
+	reportPath := filepath.Join(outDir, "GRAPH_REPORT.md")
 	if err := os.WriteFile(reportPath, []byte(reportContent), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing report: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("writing report: %w", err)
 	}
 
-	fmt.Printf("\nDone! Output written to %s/\n", *outDir)
+	fmt.Printf("\nDone! Output written to %s/\n", outDir)
 	fmt.Printf("  - graph.json\n")
 	fmt.Printf("  - graph.html\n")
 	fmt.Printf("  - GRAPH_REPORT.md\n")
+	return nil
 }
 
 func printUsage() {
@@ -313,45 +314,52 @@ func generateCommunityLabels(g *graph.Graph, communities map[int][]string) map[i
 }
 
 func runQuery(args []string) {
-	fs := flag.NewFlagSet("query", flag.ExitOnError)
-	dfs := fs.Bool("dfs", false, "Use DFS traversal instead of BFS")
-	budget := fs.Int("budget", 2000, "Token budget for output")
-	graphDir := fs.String("dir", "graphify-out", "Directory containing graph.json")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: graphify query \"<question>\" [--dfs] [--budget N]")
-		os.Exit(1)
-	}
-
-	question := fs.Arg(0)
-	mode := "bfs"
-	if *dfs {
-		mode = "dfs"
-	}
-
-	graphPath := filepath.Join(*graphDir, "graph.json")
-	if err := queryGraph(graphPath, question, mode, *budget); err != nil {
+	if err := runQueryE(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runPath(args []string) {
-	fs := flag.NewFlagSet("path", flag.ExitOnError)
+func runQueryE(args []string) error {
+	fs := flag.NewFlagSet("query", flag.ContinueOnError)
+	dfs := fs.Bool("dfs", false, "Use DFS traversal instead of BFS")
+	budget := fs.Int("budget", 2000, "Token budget for output")
 	graphDir := fs.String("dir", "graphify-out", "Directory containing graph.json")
-	fs.Parse(args)
-
-	if fs.NArg() < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: graphify path \"<nodeA>\" \"<nodeB>\"")
-		os.Exit(1)
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	graphPath := filepath.Join(*graphDir, "graph.json")
-	if err := queryPath(graphPath, fs.Arg(0), fs.Arg(1)); err != nil {
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: graphify query \"<question>\" [--dfs] [--budget N]")
+	}
+
+	mode := "bfs"
+	if *dfs {
+		mode = "dfs"
+	}
+
+	return queryGraph(filepath.Join(*graphDir, "graph.json"), fs.Arg(0), mode, *budget)
+}
+
+func runPath(args []string) {
+	if err := runPathE(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runPathE(args []string) error {
+	fs := flag.NewFlagSet("path", flag.ContinueOnError)
+	graphDir := fs.String("dir", "graphify-out", "Directory containing graph.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 2 {
+		return fmt.Errorf("usage: graphify path \"<nodeA>\" \"<nodeB>\"")
+	}
+
+	return queryPath(filepath.Join(*graphDir, "graph.json"), fs.Arg(0), fs.Arg(1))
 }
 
 const claudePrompt = `## Codebase exploration with graphify
@@ -425,18 +433,22 @@ func runClaude(args []string, targetFile string) {
 }
 
 func runExplain(args []string) {
-	fs := flag.NewFlagSet("explain", flag.ExitOnError)
-	graphDir := fs.String("dir", "graphify-out", "Directory containing graph.json")
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: graphify explain \"<node>\"")
-		os.Exit(1)
-	}
-
-	graphPath := filepath.Join(*graphDir, "graph.json")
-	if err := queryExplain(graphPath, fs.Arg(0)); err != nil {
+	if err := runExplainE(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runExplainE(args []string) error {
+	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
+	graphDir := fs.String("dir", "graphify-out", "Directory containing graph.json")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: graphify explain \"<node>\"")
+	}
+
+	return queryExplain(filepath.Join(*graphDir, "graph.json"), fs.Arg(0))
 }

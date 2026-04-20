@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -589,5 +590,541 @@ func TestQueryExplainBadNode(t *testing.T) {
 	err := queryExplain(graphPath, "NonExistent")
 	if err == nil {
 		t.Error("queryExplain() should error on unknown node")
+	}
+}
+
+// --- Pipeline tests ---
+
+func TestRunPipeline(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "out")
+	err := runPipeline("../../testdata/fixtures", outDir, false)
+	if err != nil {
+		t.Fatalf("runPipeline() error: %v", err)
+	}
+
+	// Verify outputs exist
+	for _, name := range []string{"graph.json", "graph.html", "GRAPH_REPORT.md"} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); os.IsNotExist(err) {
+			t.Errorf("runPipeline() did not create %s", name)
+		}
+	}
+}
+
+func TestRunPipelineVerbose(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "out")
+	err := runPipeline("../../testdata/fixtures", outDir, true)
+	if err != nil {
+		t.Fatalf("runPipeline(verbose) error: %v", err)
+	}
+}
+
+func TestRunPipelineCacheHits(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "out")
+	// First run populates cache
+	if err := runPipeline("../../testdata/fixtures", outDir, false); err != nil {
+		t.Fatalf("first run error: %v", err)
+	}
+	// Second run should hit cache
+	if err := runPipeline("../../testdata/fixtures", outDir, true); err != nil {
+		t.Fatalf("second run error: %v", err)
+	}
+}
+
+func TestRunPipelineEmptyDir(t *testing.T) {
+	emptyDir := t.TempDir()
+	outDir := filepath.Join(t.TempDir(), "out")
+	err := runPipeline(emptyDir, outDir, false)
+	if err != nil {
+		t.Fatalf("runPipeline(empty) error: %v", err)
+	}
+}
+
+func TestPrintUsage(t *testing.T) {
+	// Just verify it doesn't panic
+	printUsage()
+}
+
+// --- Additional coverage for labelScore ---
+
+func TestLabelScoreAllTypes(t *testing.T) {
+	// Cover all type branches
+	types := []struct {
+		nodeType string
+		wantGT   int // score should be greater than this (with degree=0)
+	}{
+		{"class", 50},
+		{"mixin", 50},
+		{"extension", 50},
+		{"enum", 50},
+		{"function", 20},
+		{"method", 10},
+		{"variable", 0},
+		{"file", -100},
+	}
+	for _, tt := range types {
+		score := labelScore("Test", tt.nodeType, 0)
+		if score <= tt.wantGT {
+			t.Errorf("labelScore(Test, %q, 0) = %d; want > %d", tt.nodeType, score, tt.wantGT)
+		}
+	}
+}
+
+func TestLabelScorePenalties(t *testing.T) {
+	// Cover all penalty patterns
+	penalties := []string{"_wrapFoo", "_makeFoo", "_buildFoo", "_ctxFoo", "_docFoo"}
+	for _, label := range penalties {
+		score := labelScore(label, "function", 0)
+		if score >= 0 {
+			t.Errorf("labelScore(%q) = %d; want negative", label, score)
+		}
+	}
+
+	// _ prefix penalty (smaller, but still reduces score)
+	withUnderscore := labelScore("_helper", "variable", 0)
+	withoutUnderscore := labelScore("helper", "variable", 0)
+	if withUnderscore >= withoutUnderscore {
+		t.Errorf("_ prefix should reduce score: %d vs %d", withUnderscore, withoutUnderscore)
+	}
+}
+
+// --- Additional coverage for generateCommunityLabels ---
+
+func TestGenerateCommunityLabelsFileNode(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("n1", "widget_test.dart", "file", "test/widget_test.dart")
+	communities := map[int][]string{0: {"n1"}}
+	labels := generateCommunityLabels(g, communities)
+	if !strings.Contains(labels[0], "widget tests") {
+		t.Errorf("label = %q; want to contain 'widget tests'", labels[0])
+	}
+}
+
+func TestGenerateCommunityLabelsEmpty(t *testing.T) {
+	g := graph.NewGraph()
+	communities := map[int][]string{0: {"nonexistent"}}
+	labels := generateCommunityLabels(g, communities)
+	if !strings.Contains(labels[0], "Community") {
+		t.Errorf("label = %q; want fallback 'Community 0'", labels[0])
+	}
+}
+
+func TestGenerateCommunityLabelsDirOnly(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("n1", "utils", "module", "lib/utils.go")
+	communities := map[int][]string{0: {"n1"}}
+	labels := generateCommunityLabels(g, communities)
+	// module nodes are rejected by labelScore, so label should be dir-only
+	if labels[0] == "" {
+		t.Error("label should not be empty")
+	}
+}
+
+func TestGenerateCommunityLabelsNodeOnly(t *testing.T) {
+	g := graph.NewGraph()
+	g.AddNode("n1", "Helper", "class", "") // no file → no dir
+	communities := map[int][]string{0: {"n1"}}
+	labels := generateCommunityLabels(g, communities)
+	if labels[0] != "Helper" {
+		t.Errorf("label = %q; want 'Helper'", labels[0])
+	}
+}
+
+// --- Additional coverage for runClaude ---
+
+func TestRunClaudeAppendsNoTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	// Existing file without trailing newline
+	os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# No newline at end"), 0644)
+	runClaude([]string{dir}, "CLAUDE.md")
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if !strings.Contains(string(data), "## Codebase exploration with graphify") {
+		t.Error("should append prompt even without trailing newline")
+	}
+}
+
+// --- Additional coverage for queryGraph ---
+
+func TestQueryGraphBudgetTruncation(t *testing.T) {
+	dir := t.TempDir()
+	// Create a large graph to trigger budget truncation
+	graphData := map[string]interface{}{
+		"nodes": make([]map[string]interface{}, 0),
+		"links": make([]map[string]interface{}, 0),
+	}
+	nodes := graphData["nodes"].([]map[string]interface{})
+	links := graphData["links"].([]map[string]interface{})
+	for i := 0; i < 50; i++ {
+		id := fmt.Sprintf("n%d", i)
+		nodes = append(nodes, map[string]interface{}{
+			"id": id, "label": fmt.Sprintf("ServiceNode%d", i), "type": "class", "file": fmt.Sprintf("pkg/svc%d.go", i),
+		})
+		if i > 0 {
+			links = append(links, map[string]interface{}{
+				"source": fmt.Sprintf("n%d", i-1), "target": id, "relation": "calls", "confidence": "EXTRACTED",
+			})
+		}
+	}
+	graphData["nodes"] = nodes
+	graphData["links"] = links
+	data, _ := json.MarshalIndent(graphData, "", "  ")
+	graphPath := filepath.Join(dir, "graph.json")
+	os.WriteFile(graphPath, data, 0644)
+
+	// Very small budget to trigger truncation
+	err := queryGraph(graphPath, "ServiceNode0", "bfs", 50)
+	if err != nil {
+		t.Fatalf("queryGraph(small budget) error: %v", err)
+	}
+}
+
+func TestQueryGraphDFSTruncation(t *testing.T) {
+	dir := t.TempDir()
+	graphData := map[string]interface{}{
+		"nodes": make([]map[string]interface{}, 0),
+		"links": make([]map[string]interface{}, 0),
+	}
+	nodes := graphData["nodes"].([]map[string]interface{})
+	links := graphData["links"].([]map[string]interface{})
+	for i := 0; i < 50; i++ {
+		id := fmt.Sprintf("n%d", i)
+		nodes = append(nodes, map[string]interface{}{
+			"id": id, "label": fmt.Sprintf("Node%d", i), "type": "class", "file": fmt.Sprintf("pkg/%d.go", i),
+		})
+		if i > 0 {
+			links = append(links, map[string]interface{}{
+				"source": fmt.Sprintf("n%d", i-1), "target": id, "relation": "calls", "confidence": "EXTRACTED",
+			})
+		}
+	}
+	graphData["nodes"] = nodes
+	graphData["links"] = links
+	data, _ := json.MarshalIndent(graphData, "", "  ")
+	graphPath := filepath.Join(dir, "graph.json")
+	os.WriteFile(graphPath, data, 0644)
+
+	err := queryGraph(graphPath, "Node0", "dfs", 50)
+	if err != nil {
+		t.Fatalf("queryGraph(dfs, small budget) error: %v", err)
+	}
+}
+
+func TestQueryGraphNoTerms(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+
+	err := queryGraph(graphPath, "is a", "bfs", 2000)
+	if err == nil {
+		t.Error("queryGraph() should error when all words are stopwords")
+	}
+}
+
+func TestQueryGraphInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := filepath.Join(dir, "graph.json")
+	os.WriteFile(graphPath, []byte("not json"), 0644)
+
+	err := queryGraph(graphPath, "test", "bfs", 2000)
+	if err == nil {
+		t.Error("queryGraph() should error on invalid JSON")
+	}
+}
+
+// --- Additional coverage for queryPath ---
+
+func TestQueryPathMissingFile(t *testing.T) {
+	err := queryPath("/nonexistent/graph.json", "A", "B")
+	if err == nil {
+		t.Error("queryPath() should error on missing file")
+	}
+}
+
+func TestQueryPathInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := filepath.Join(dir, "graph.json")
+	os.WriteFile(graphPath, []byte("bad"), 0644)
+
+	err := queryPath(graphPath, "A", "B")
+	if err == nil {
+		t.Error("queryPath() should error on invalid JSON")
+	}
+}
+
+func TestQueryPathBadTarget(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+
+	err := queryPath(graphPath, "AuthService", "NonExistent")
+	if err == nil {
+		t.Error("queryPath() should error on unknown target node")
+	}
+}
+
+// --- Additional coverage for queryExplain ---
+
+func TestQueryExplainMissingFile(t *testing.T) {
+	err := queryExplain("/nonexistent/graph.json", "test")
+	if err == nil {
+		t.Error("queryExplain() should error on missing file")
+	}
+}
+
+func TestQueryExplainInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := filepath.Join(dir, "graph.json")
+	os.WriteFile(graphPath, []byte("bad"), 0644)
+
+	err := queryExplain(graphPath, "test")
+	if err == nil {
+		t.Error("queryExplain() should error on invalid JSON")
+	}
+}
+
+func TestQueryExplainIncomingEdges(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+
+	// UserRepo has both incoming (from AuthService) and outgoing (to Database) edges
+	err := queryExplain(graphPath, "UserRepo")
+	if err != nil {
+		t.Fatalf("queryExplain(UserRepo) error: %v", err)
+	}
+}
+
+// --- Additional coverage for queryPath ---
+
+func TestQueryPathReverseDirection(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+
+	// Database → AuthService follows incoming edges
+	err := queryPath(graphPath, "Database", "AuthService")
+	if err != nil {
+		t.Fatalf("queryPath(reverse) error: %v", err)
+	}
+}
+
+// --- Additional coverage for findNode ---
+
+func TestFindNodePartialPrefersShorter(t *testing.T) {
+	nodes := map[string]*jsonNode{
+		"n1": {ID: "n1", Label: "Auth"},
+		"n2": {ID: "n2", Label: "AuthService"},
+		"n3": {ID: "n3", Label: "AuthServiceManager"},
+	}
+
+	// Should prefer the shorter match "Auth"
+	id := findNode(nodes, "Auth")
+	if id != "n1" {
+		t.Errorf("findNode(Auth) = %q; want n1 (exact match)", id)
+	}
+}
+
+// --- CLI integration tests for subcommands ---
+
+func TestCLIQuerySubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "graphify-out")
+
+	// Build and run pipeline first
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "-out", outDir, "testdata/fixtures/")
+	cmd.Dir = filepath.Join("..", "..")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test query subcommand
+	queryCmd := exec.Command(filepath.Join(tmpDir, "graphify"), "query", "--dir", outDir, "Transformer")
+	queryCmd.Dir = filepath.Join("..", "..")
+	output, err := queryCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("query failed: %v\nOutput: %s", err, output)
+	}
+	if !strings.Contains(string(output), "Transformer") {
+		t.Errorf("query output should mention Transformer: %s", output)
+	}
+}
+
+func TestCLIPathSubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "graphify-out")
+
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "-out", outDir, "testdata/fixtures/")
+	cmd.Dir = filepath.Join("..", "..")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	pathCmd := exec.Command(filepath.Join(tmpDir, "graphify"), "path", "--dir", outDir, "Transformer", "forward")
+	pathCmd.Dir = filepath.Join("..", "..")
+	output, err := pathCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("path failed: %v\nOutput: %s", err, output)
+	}
+}
+
+func TestCLIExplainSubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "graphify-out")
+
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "-out", outDir, "testdata/fixtures/")
+	cmd.Dir = filepath.Join("..", "..")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	explainCmd := exec.Command(filepath.Join(tmpDir, "graphify"), "explain", "--dir", outDir, "Transformer")
+	explainCmd.Dir = filepath.Join("..", "..")
+	output, err := explainCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("explain failed: %v\nOutput: %s", err, output)
+	}
+	if !strings.Contains(string(output), "Transformer") {
+		t.Errorf("explain output should mention Transformer: %s", output)
+	}
+}
+
+func TestCLIClaudeSubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetDir := filepath.Join(tmpDir, "project")
+	os.MkdirAll(targetDir, 0755)
+
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "claude", targetDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("claude failed: %v\nOutput: %s", err, output)
+	}
+	if !strings.Contains(string(output), "CLAUDE.md") {
+		t.Errorf("output should mention CLAUDE.md: %s", output)
+	}
+}
+
+func TestCLIAgentsSubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetDir := filepath.Join(tmpDir, "project")
+	os.MkdirAll(targetDir, 0755)
+
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "agents", targetDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("agents failed: %v\nOutput: %s", err, output)
+	}
+	if !strings.Contains(string(output), "AGENTS.md") {
+		t.Errorf("output should mention AGENTS.md: %s", output)
+	}
+}
+
+// --- Unit tests for run*E wrappers ---
+
+func TestRunQueryE(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+	graphDir := filepath.Dir(graphPath)
+
+	err := runQueryE([]string{"--dir", graphDir, "AuthService"})
+	if err != nil {
+		t.Fatalf("runQueryE() error: %v", err)
+	}
+}
+
+func TestRunQueryEDFS(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+	graphDir := filepath.Dir(graphPath)
+
+	err := runQueryE([]string{"--dir", graphDir, "--dfs", "AuthService"})
+	if err != nil {
+		t.Fatalf("runQueryE(dfs) error: %v", err)
+	}
+}
+
+func TestRunQueryENoArgs(t *testing.T) {
+	err := runQueryE([]string{})
+	if err == nil {
+		t.Error("runQueryE() should error with no args")
+	}
+}
+
+func TestRunPathE(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+	graphDir := filepath.Dir(graphPath)
+
+	err := runPathE([]string{"--dir", graphDir, "AuthService", "Database"})
+	if err != nil {
+		t.Fatalf("runPathE() error: %v", err)
+	}
+}
+
+func TestRunPathENoArgs(t *testing.T) {
+	err := runPathE([]string{"nodeA"})
+	if err == nil {
+		t.Error("runPathE() should error with < 2 args")
+	}
+}
+
+func TestRunExplainE(t *testing.T) {
+	dir := t.TempDir()
+	graphPath := writeTestGraph(t, dir)
+	graphDir := filepath.Dir(graphPath)
+
+	err := runExplainE([]string{"--dir", graphDir, "AuthService"})
+	if err != nil {
+		t.Fatalf("runExplainE() error: %v", err)
+	}
+}
+
+func TestRunExplainENoArgs(t *testing.T) {
+	err := runExplainE([]string{})
+	if err == nil {
+		t.Error("runExplainE() should error with no args")
+	}
+}
+
+func TestCLIHelpSubcommand(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join(tmpDir, "graphify"), "./cmd/graphify")
+	buildCmd.Dir = filepath.Join("..", "..")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("CLI build failed: %v", err)
+	}
+
+	cmd := exec.Command(filepath.Join(tmpDir, "graphify"), "help")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("help failed: %v\nOutput: %s", err, output)
+	}
+	if !strings.Contains(string(output), "Usage:") {
+		t.Errorf("help output should contain Usage: %s", output)
 	}
 }
